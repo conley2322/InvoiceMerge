@@ -77,7 +77,7 @@ InvoiceMerge.exe --version    :: 版本戳，打印到控制台
 InvoiceMerge.exe --where      :: 自身路径 + iTextSharp 加载来源（来源为空 = 从内存加载，正常）
 ```
 
-退出码与日志：
+退出码：
 
 | 退出码 | 含义 |
 |---|---|
