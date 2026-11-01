@@ -2,7 +2,7 @@
 
 把电子发票 PDF 拼成 A4 版式：一张 A4 放两张票，中间是一条灰色裁切虚线，打印后沿线裁开就能用。
 
-Windows 单文件命令行工具，纯本地处理，不联网、不上传、不收集任何数据。
+Windows 单文件工具，纯本地处理，不联网、不上传、不收集任何数据。**把发票 PDF 拖到 exe 图标上就能用**，也保留命令行模式供脚本调用。
 
 ---
 
@@ -26,7 +26,7 @@ Windows 单文件命令行工具，纯本地处理，不联网、不上传、不
 
 ## 下载
 
-直接取 [release/InvoiceMerge_v12.exe](release/InvoiceMerge_v12.exe)（9.03 MB / 9,472,000 字节）。
+直接取 [release/InvoiceMerge_v13.exe](release/InvoiceMerge_v13.exe)（9.04 MB / 9,479,680 字节）。
 
 - 单文件版：两个依赖 DLL 已嵌入 exe 内部，复制到任何目录双击即可运行，不需要同目录放 DLL。
 - 运行环境：Windows + .NET Framework 4.x（Win10/11 自带，无需另外安装）。
@@ -41,6 +41,16 @@ Windows 单文件命令行工具，纯本地处理，不联网、不上传、不
 ---
 
 ## 用法
+
+### 方式一：拖拽（推荐日常使用）
+
+1. 把 1 个或多个发票 PDF（或整个文件夹）**直接拖到 `InvoiceMerge.exe` 图标上**；
+2. 弹出选择窗，点「专用发票」或「普通发票」两张卡片（也支持键盘 `1` / `2`）；
+3. 处理完成后成品自动生成并打开。
+
+双击 exe（不带文件）会先弹出文件选择框（可多选），之后流程相同。处理中或出错时窗口内直接显示状态与原因。
+
+### 方式二：命令行 / 脚本调用（静默，零弹窗）
 
 ```bat
 :: 专用发票：一张票，上下两份，输出 1 页
@@ -75,7 +85,7 @@ InvoiceMerge.exe --where      :: 自身路径 + iTextSharp 加载来源（来源
 | `2` | 没有有效输入（文件不存在，或全部是已拼好的成品） |
 | `3` | 处理出错 |
 
-结果统一写入 exe 同目录的 `last_result.txt`，**全程零弹窗**，方便被其他程序（如 Quicker）调用后读取状态。
+结果统一写入 exe 同目录的 `last_result.txt`；命令行模式**全程零弹窗**，方便被其他程序（如 Quicker）调用后读取状态。
 
 已做防护：文件名以 `专票拼版_` / `普票拼版_` 开头的成品会被自动跳过，避免重复拼版。
 
@@ -102,7 +112,7 @@ Quicker「运行或打开」模块的参数写法：
    - `itextsharp.dll` —— NuGet 包 `iTextSharp` 5.5.13.3（或 `iTextSharp-LGPL`）
    - `BouncyCastle.Cryptography.dll` —— NuGet 包 `BouncyCastle.Cryptography` 2.x
 
-然后双击 `build.bat`。编译脚本会自动补 UTF-8 BOM、嵌入两个 DLL、跑 `--version` 自检，并把 exe 单独拷到空目录做「无 DLL 运行」验证。
+然后双击 `build.bat`。编译脚本会自动补 UTF-8 BOM、嵌入两个 DLL、引用系统的 `System.Windows.Forms` / `System.Drawing`（v13 图形界面所需，均为 Windows 自带）、跑 `--version` 自检，并把 exe 单独拷到空目录做「无 DLL 运行」验证。
 
 ---
 

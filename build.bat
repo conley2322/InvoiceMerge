@@ -41,6 +41,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SRC%'; $t=[IO.File]
   -out:"%OUT%" ^
   -r:"%LIB%\itextsharp.dll" ^
   -r:"%LIB%\BouncyCastle.Cryptography.dll" ^
+  -r:System.Windows.Forms.dll ^
+  -r:System.Drawing.dll ^
   -resource:"%LIB%\itextsharp.dll" ^
   -resource:"%LIB%\BouncyCastle.Cryptography.dll" ^
   "%SRC%"

@@ -1,39 +1,64 @@
-// 发票拼版 CLI v12：单文件版（两个 DLL 已嵌入 exe，运行时不依赖同目录文件）
-// 标准用法：InvoiceMerge.exe <发票类型> <PDF路径...>
-//   参数1 发票类型：0 = 专用发票（每张票上下复制两份+虚线，多文件合出一份多页 PDF）
-//                  1 = 普通发票（按顺序两两配对：上=票1 下=票2+虚线；单张/奇数尾张 → 只放上票，下半留白）
-//                  兼容写法：也可传「专用发票」「普通发票」「专票」「普票」等字样，按关键字识别；缺省按普票
-//   参数2..N：PDF 完整路径（引号包裹）；首个参数若为 .txt 清单文件亦可
-// 自检：InvoiceMerge.exe --version → 写 last_result.txt "VERSION v12"；--where → 打印自身路径与依赖状态
-// 零弹窗：成功/失败结果一律写入同目录 last_result.txt，退出代码 0 成功 / 2 无有效输入 / 3 出错
+﻿// 发票拼版 v13：拖拽交互版（单文件，两个 DLL 已嵌入 exe）
+// ---------------------------------------------------------------------------
+// 【日常用法】把 1~N 个发票 PDF 直接拖到 exe 图标上 → 弹出选择窗 → 选专用/普通发票 → 自动生成并打开成品
+//            双击 exe（不带文件）→ 弹出文件选择框，流程相同
+//
+// 【静默用法】保留原命令行模式，供 Quicker 等程序调用（此路径零弹窗、零 UI）：
+//            InvoiceMerge.exe <发票类型> <PDF路径...>
+//              发票类型：0 / 专用发票 / 专票  → 专票模式（每张票上下复制两份，一票一页）
+//                        1 / 普通发票 / 普票  → 普票模式（两两配对，上=票1 下=票2；奇数尾张下半留白）
+//            InvoiceMerge.exe --version   版本戳，写 last_result.txt
+//            InvoiceMerge.exe --where     打印自身路径与 iTextSharp 加载来源
+//
 // 布局与 V4 一致：A4 竖版、边距 28pt、间距 16pt、0.5pt 灰色 4-4 裁切虚线、等比缩放居中
-// 输出命名：<源目录>\专票拼版_/普票拼版_<时间戳>.pdf
+// 输出命名：<源目录>\专票拼版_/普票拼版_<时间戳>.pdf，生成后自动打开
+// 退出码：0 成功 / 2 无有效输入（含用户取消） / 3 出错
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using iTextSharp.text;
+using System.Windows.Forms;
+using iText = iTextSharp.text;             // 用别名避免与 System.Drawing.Font 等类型冲突
 using iTextSharp.text.pdf;
 
 static class Program
 {
-    const string Ver = "v12";
+    const string Ver = "v13";
     static readonly string ResultFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last_result.txt");
 
-    // 入口：先把「从嵌入资源加载程序集」的钩子挂上，再调用真正的主流程。
-    // 关键点：MainCore 单独成一个方法，JIT 只在调用时才编译它，
-    // 保证任何 iTextSharp 类型被解析之前钩子已经生效。
     [STAThread]
     static int Main(string[] args)
     {
+        // 先挂装配解析钩子，再进主流程：保证任何 iTextSharp 类型被 JIT 解析前钩子已生效
         AppDomain.CurrentDomain.AssemblyResolve += ResolveFromEmbedded;
-        return MainCore(args);
+
+        // 静默路径：自检参数，或「类型参数 + 文件」的命令行调用（Quicker 走这里，绝不弹窗）
+        if (args.Length >= 1 && (args[0] == "--version" || args[0] == "-v" || args[0] == "--where"))
+            return MainCore(args);
+        if (args.Length >= 1 && LooksLikeModeArg(args[0]))
+            return MainCore(args);
+
+        return RunUi(args);
     }
 
-    // 同目录缺 DLL 时，从 exe 内部的嵌入资源里加载，实现"单文件可移植"
+    // 判断首参数是「发票类型」而不是文件路径：含路径分隔符、以 .pdf/.txt 结尾、真实存在的文件，都不算类型
+    static bool LooksLikeModeArg(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        s = s.Trim();
+        if (s == "0" || s == "1") return true;
+        if (s.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) return false;
+        if (s.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) return false;
+        if (s.IndexOf('\\') >= 0 || s.IndexOf('/') >= 0) return false;
+        try { if (File.Exists(s)) return false; } catch { }
+        return IsTypeArg(s);
+    }
+
+    // 同目录缺 DLL 时从 exe 内嵌资源加载，实现单文件可移植
     static Assembly ResolveFromEmbedded(object sender, ResolveEventArgs e)
     {
         try
@@ -64,11 +89,292 @@ static class Program
         return null;
     }
 
+    // ===================== 交互模式（拖放 / 双击） =====================
+    static int RunUi(string[] args)
+    {
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+
+        List<string> files = CollectFiles(args);
+
+        if (files.Count == 0)
+        {
+            if (args.Length > 0)
+            {
+                MessageBox.Show("拖进来的内容里没有可用的 PDF 文件。\r\n\r\n请直接把发票 PDF 拖到本程序图标上。",
+                    "发票拼版", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return 2;
+            }
+
+            // 双击运行：让用户挑文件
+            using (var dlg = new OpenFileDialog())
+            {
+                dlg.Title = "选择要拼版的发票 PDF（可多选）";
+                dlg.Filter = "PDF 文件 (*.pdf)|*.pdf";
+                dlg.Multiselect = true;
+                if (dlg.ShowDialog() != DialogResult.OK) return 0;
+                files.AddRange(dlg.FileNames);
+            }
+        }
+
+        files = ResolveInputPaths(files.ToArray());
+        if (files.Count == 0)
+        {
+            MessageBox.Show("没有可处理的 PDF。\r\n\r\n以「专票拼版_」「普票拼版_」开头的成品文件会被自动跳过，避免重复拼版。",
+                "发票拼版", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return 2;
+        }
+
+        using (var form = new PickForm(files))
+        {
+            form.ShowDialog();
+            return form.ExitCode;
+        }
+    }
+
+    // 展开拖入的内容：文件夹自动取其中的 PDF；其余原样保留（后续统一做存在性过滤）
+    static List<string> CollectFiles(string[] args)
+    {
+        var list = new List<string>();
+        foreach (string a in args)
+        {
+            if (string.IsNullOrWhiteSpace(a)) continue;
+            string p = a.Trim().Trim('"');
+            try
+            {
+                if (Directory.Exists(p))
+                {
+                    var found = Directory.GetFiles(p, "*.pdf");
+                    Array.Sort(found, StringComparer.OrdinalIgnoreCase);
+                    list.AddRange(found);
+                }
+                else
+                {
+                    list.Add(p);
+                }
+            }
+            catch { list.Add(p); }
+        }
+        return list;
+    }
+
+    // ===================== 选择窗 =====================
+    class PickForm : Form
+    {
+        readonly List<string> _files;
+        CardPanel _cardSpecial, _cardNormal;
+        Button _btnCancel;
+        Label _lblTitle, _lblSub, _lblList, _lblStatus;
+        public int ExitCode = 0;
+
+        public PickForm(List<string> files)
+        {
+            _files = files;
+            BuildUi();
+        }
+
+        void BuildUi()
+        {
+            Text = "发票拼版";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition = FormStartPosition.CenterScreen;
+            MaximizeBox = false;
+            MinimizeBox = false;
+            ShowIcon = false;
+            BackColor = Color.White;
+            Font = new Font("微软雅黑", 9f);
+            ClientSize = new Size(408, 300);
+
+            _lblTitle = new Label();
+            _lblTitle.Text = "发票拼版";
+            _lblTitle.Font = new Font("微软雅黑", 15f, FontStyle.Bold);
+            _lblTitle.ForeColor = Color.FromArgb(20, 46, 110);
+            _lblTitle.AutoSize = true;
+            _lblTitle.Location = new Point(22, 16);
+            Controls.Add(_lblTitle);
+
+            _lblSub = new Label();
+            _lblSub.Text = "已选择 " + _files.Count + " 个文件，请选择发票类型：";
+            _lblSub.Font = new Font("微软雅黑", 9f);
+            _lblSub.ForeColor = Color.FromArgb(105, 115, 135);
+            _lblSub.AutoSize = true;
+            _lblSub.Location = new Point(24, 54);
+            Controls.Add(_lblSub);
+
+            _lblList = new Label();
+            _lblList.Text = BuildFileSummary();
+            _lblList.Font = new Font("微软雅黑", 8f);
+            _lblList.ForeColor = Color.FromArgb(150, 158, 172);
+            _lblList.AutoSize = false;
+            _lblList.Size = new Size(360, 34);
+            _lblList.Location = new Point(24, 74);
+            Controls.Add(_lblList);
+
+            _cardSpecial = new CardPanel();
+            _cardSpecial.Title = "专用发票";
+            _cardSpecial.Desc = "每张票上下复制两份，一张票一页";
+            _cardSpecial.Location = new Point(16, 112);
+            _cardSpecial.Size = new Size(376, 62);
+            _cardSpecial.Click += delegate { OnPick(true); };
+            Controls.Add(_cardSpecial);
+
+            _cardNormal = new CardPanel();
+            _cardNormal.Title = "普通发票";
+            _cardNormal.Desc = "按顺序两两配对，一页放两张票";
+            _cardNormal.Location = new Point(16, 182);
+            _cardNormal.Size = new Size(376, 62);
+            _cardNormal.Click += delegate { OnPick(false); };
+            Controls.Add(_cardNormal);
+
+            _btnCancel = new Button();
+            _btnCancel.Text = "取消";
+            _btnCancel.FlatStyle = FlatStyle.System;
+            _btnCancel.Size = new Size(84, 28);
+            _btnCancel.Location = new Point(308, 254);
+            _btnCancel.Click += delegate { Close(); };
+            Controls.Add(_btnCancel);
+
+            _lblStatus = new Label();
+            _lblStatus.AutoSize = false;
+            _lblStatus.Size = new Size(376, 92);
+            _lblStatus.Location = new Point(16, 112);
+            _lblStatus.TextAlign = ContentAlignment.MiddleCenter;
+            _lblStatus.Font = new Font("微软雅黑", 10.5f);
+            _lblStatus.ForeColor = Color.FromArgb(20, 46, 110);
+            _lblStatus.Visible = false;
+            Controls.Add(_lblStatus);
+
+            AcceptButton = null;
+            CancelButton = _btnCancel;
+            KeyPreview = true;
+            KeyDown += delegate(object s, KeyEventArgs e)
+            {
+                if (!_cardSpecial.Visible) { if (e.KeyCode == Keys.Escape) Close(); return; }
+                if (e.KeyCode == Keys.D1 || e.KeyCode == Keys.NumPad1) OnPick(true);
+                else if (e.KeyCode == Keys.D2 || e.KeyCode == Keys.NumPad2) OnPick(false);
+            };
+        }
+
+        string BuildFileSummary()
+        {
+            var names = new List<string>();
+            int show = Math.Min(_files.Count, 3);
+            for (int i = 0; i < show; i++) names.Add(Path.GetFileName(_files[i]));
+            string s = string.Join("、", names.ToArray());
+            if (_files.Count > show) s += " …共 " + _files.Count + " 个";
+            return s;
+        }
+
+        void OnPick(bool special)
+        {
+            _cardSpecial.Visible = false;
+            _cardNormal.Visible = false;
+            _btnCancel.Visible = false;
+            _lblStatus.Visible = true;
+            _lblStatus.ForeColor = Color.FromArgb(20, 46, 110);
+            _lblStatus.Text = special ? "正在生成专票拼版…" : "正在生成普票拼版…";
+            Application.DoEvents();
+
+            try
+            {
+                int invoiceCount = 0;
+                int outPages = 0;
+                byte[] bytes = Build(_files, special, ref invoiceCount, ref outPages);
+
+                if (bytes.Length < 2000)
+                    throw new Exception("生成结果仅 " + bytes.Length + " 字节，已阻止写入。");
+
+                int expectPages = special ? invoiceCount : (invoiceCount + 1) / 2;
+                using (PdfReader v = new PdfReader(bytes))
+                {
+                    int n = v.NumberOfPages;
+                    v.Close();
+                    if (n != expectPages)
+                        throw new Exception("自校验失败：预期 " + expectPages + " 页，实际 " + n + " 页。");
+                }
+
+                string dir = Path.GetDirectoryName(_files[0]);
+                if (string.IsNullOrEmpty(dir)) dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                string outPath = Path.Combine(dir,
+                    (special ? "专票拼版_" : "普票拼版_") + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".pdf");
+                File.WriteAllBytes(outPath, bytes);
+
+                WriteResult("OK " + (special ? "专票模式" : "普票模式") + "（拖拽交互）"
+                    + " | 输入 " + _files.Count + " 个文件 / " + invoiceCount + " 张票 → 输出 " + outPages + " 页 A4"
+                    + Environment.NewLine + outPath);
+
+                ExitCode = 0;
+                try { Process.Start(new ProcessStartInfo(outPath) { UseShellExecute = true }); }
+                catch { }
+                Close();
+            }
+            catch (Exception ex)
+            {
+                WriteResult("ERROR " + ex.GetType().Name + "：" + ex.Message);
+                ExitCode = 3;
+
+                _lblStatus.ForeColor = Color.FromArgb(190, 40, 40);
+                _lblStatus.Font = new Font("微软雅黑", 9f);
+                _lblStatus.Text = "处理失败：\r\n\r\n" + ex.Message;
+
+                _btnCancel.Visible = true;
+                _btnCancel.Text = "关闭";
+                _btnCancel.Location = new Point(308, 254);
+            }
+        }
+    }
+
+    // 可自绘的卡片（整块可点击，鼠标悬停高亮）
+    class CardPanel : Panel
+    {
+        public string Title = "";
+        public string Desc = "";
+        bool _hover;
+
+        public CardPanel()
+        {
+            Cursor = Cursors.Hand;
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer
+                | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnMouseEnter(EventArgs e)
+        {
+            _hover = true; Invalidate(); base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            _hover = false; Invalidate(); base.OnMouseLeave(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            Color fill = _hover ? Color.FromArgb(233, 241, 255) : Color.FromArgb(246, 249, 255);
+            Color line = _hover ? Color.FromArgb(31, 79, 216) : Color.FromArgb(201, 214, 245);
+            using (var b = new SolidBrush(fill)) g.FillRectangle(b, ClientRectangle);
+            using (var pen = new Pen(line, _hover ? 2f : 1f))
+                g.DrawRectangle(pen, 0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+
+            using (var f1 = new Font("微软雅黑", 11.5f, FontStyle.Bold))
+            using (var f2 = new Font("微软雅黑", 8.5f))
+            using (var br1 = new SolidBrush(Color.FromArgb(24, 58, 140)))
+            using (var br2 = new SolidBrush(Color.FromArgb(110, 120, 140)))
+            {
+                g.DrawString(Title, f1, br1, 16f, 9f);
+                g.DrawString(Desc, f2, br2, 17f, 36f);
+            }
+        }
+    }
+
+    // ===================== 静默（命令行 / Quicker）模式 =====================
     static int MainCore(string[] args)
     {
         try
         {
-            // 诊断：打印自身位置 + 依赖来源（排查"别的电脑跑不起来"时用）
             if (args.Length >= 1 && args[0] == "--where")
             {
                 string self = Assembly.GetExecutingAssembly().Location;
@@ -81,7 +387,6 @@ static class Program
                 return 0;
             }
 
-            // 版本自证：编译后 build.bat 会调用，用来确认跑的是最新 exe
             if (args.Length >= 1 && (args[0] == "--version" || args[0] == "-v"))
             {
                 WriteResult("VERSION " + Ver);
@@ -92,7 +397,6 @@ static class Program
             string typeArg = "(未指定)";
             var rest = new List<string>(args);
 
-            // 参数1 = 发票类型：数字 0/1，或含「专/普」字样的文本（兼容 Quicker 用户选择的两种输出）
             if (rest.Count >= 1 && IsTypeArg(rest[0]))
             {
                 specialMode = IsSpecial(rest[0]);
@@ -146,7 +450,6 @@ static class Program
         }
     }
 
-    // 参数是否为发票类型标识
     static bool IsTypeArg(string s)
     {
         if (string.IsNullOrEmpty(s)) return false;
@@ -157,7 +460,6 @@ static class Program
         return false;
     }
 
-    // 是否专票模式（数字 0 或含「专」；缺省/无法识别 → 普票）
     static bool IsSpecial(string s)
     {
         s = (s ?? "").Trim();
@@ -166,7 +468,6 @@ static class Program
         return s.Contains("专");
     }
 
-    // 结果写入 last_result.txt（覆盖），供 Quicker 或人工排查；写入失败不影响主流程
     static void WriteResult(string text)
     {
         try
@@ -179,21 +480,21 @@ static class Program
     }
 
     // ===== 构建：special=true 专票复制模式 / false 普票配对模式 =====
-    static byte[] Build(List<string> paths, bool special, ref int invoiceCount, ref int outPages)
+    internal static byte[] Build(List<string> paths, bool special, ref int invoiceCount, ref int outPages)
     {
-        float pageW = PageSize.A4.Width;
-        float pageH = PageSize.A4.Height;
+        float pageW = iText.PageSize.A4.Width;
+        float pageH = iText.PageSize.A4.Height;
         float margin = 28f;
         float gap = 16f;
         float bandH = (pageH - 2f * margin - gap) / 2f;
 
         var ms = new MemoryStream();
-        Document doc = new Document(PageSize.A4, 0f, 0f, 0f, 0f);
+        iText.Document doc = new iText.Document(iText.PageSize.A4, 0f, 0f, 0f, 0f);
         PdfWriter writer = PdfWriter.GetInstance(doc, ms);
         doc.Open();
 
         var readers = new List<PdfReader>();
-        var pages = new List<KeyValuePair<PdfReader, int>>();   // 展平的"票"序列，按传入顺序
+        var pages = new List<KeyValuePair<PdfReader, int>>();
         Exception closeErr = null;
         try
         {
@@ -209,7 +510,6 @@ static class Program
 
             if (special)
             {
-                // 专票：每张票一页 A4，上下同票 + 虚线
                 for (int i = 0; i < pages.Count; i++)
                 {
                     if (outPages > 0) doc.NewPage();
@@ -222,8 +522,6 @@ static class Program
             }
             else
             {
-                // 普票：两两配对（上=第1张，下=第2张）+ 虚线
-                // 单张 / 奇数尾张：只画上带，下带保持空白（不复制、不留残影）
                 for (int i = 0; i < pages.Count; i += 2)
                 {
                     if (outPages > 0) doc.NewPage();
@@ -238,7 +536,6 @@ static class Program
         }
         finally
         {
-            // 关键顺序：先关 writer（此阶段回读源 PDF 内容），再关全部 reader
             try { doc.Close(); }
             catch (Exception ex) { closeErr = ex; }
             foreach (PdfReader r in readers) { try { r.Close(); } catch { } }
@@ -252,7 +549,6 @@ static class Program
         return ms.ToArray();
     }
 
-    // 等比缩放后居中放入指定高度的"带"
     static void PlaceInBand(PdfContentByte cb, PdfWriter writer, PdfReader reader, int pageNo,
         float pageW, float bandBottomY, float margin, float bandH)
     {
@@ -266,12 +562,11 @@ static class Program
         cb.AddTemplate(page, scale, 0f, 0f, scale, x, y);
     }
 
-    // 上下两票之间的灰色裁切虚线（与 Mac 端网页版 / V4 一致）
     static void DrawCutLine(PdfContentByte cb, float pageW, float margin, float bandH, float gap)
     {
         cb.SaveState();
         cb.SetLineWidth(0.5f);
-        cb.SetColorStroke(new BaseColor(180, 180, 180));
+        cb.SetColorStroke(new iText.BaseColor(180, 180, 180));
         cb.SetLineDash(4f, 4f);
         float ly = margin + bandH + gap / 2f;
         cb.MoveTo(margin / 2f, ly);
@@ -281,7 +576,7 @@ static class Program
     }
 
     // ===== 输入解析：清单文件 / 直接传 PDF / 默认清单 =====
-    static List<string> ResolveInputPaths(string[] args)
+    internal static List<string> ResolveInputPaths(string[] args)
     {
         var candidates = new List<string>();
 
@@ -321,7 +616,8 @@ static class Program
                 paths.Add(c);
             }
         }
-        // 防呆：跳过本程序自己的成品文件，避免"成品再当输入"导致页面上又出现一张票
+
+        // 防呆：跳过本程序自己的成品文件，避免"成品再当输入"
         var final = new List<string>();
         foreach (string p in paths.Distinct(StringComparer.OrdinalIgnoreCase))
         {
@@ -332,7 +628,6 @@ static class Program
         return final;
     }
 
-    // 兼容 UTF-8 BOM / UTF-8 / ANSI（GBK）
     static string[] ReadAllLinesSmart(string file)
     {
         byte[] raw = File.ReadAllBytes(file);
