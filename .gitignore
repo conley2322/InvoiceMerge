@@ -1,0 +1,10 @@
+# 第三方依赖不入库，自行从 NuGet 获取
+lib/
+*.dll
+*.pdb
+
+# 运行时产物
+last_result.txt
+*.tmp
+*.bak
+.vs/
