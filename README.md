@@ -4,6 +4,8 @@
 
 Windows 单文件工具，纯本地处理，不联网、不上传、不收集任何数据。**把发票 PDF 拖到 exe 图标上就能用**，也保留命令行模式供脚本调用。
 
+> 不想装 exe？配套的 **[Quicker 动作](https://getquicker.net/Sharedaction?code=e42cf181-8242-4428-776e-08df37bc8114)** 用纯代码实现同样效果，选中发票一键拼版，见[下文](#在-quicker-中使用)。
+
 ---
 
 ## 效果
@@ -96,9 +98,15 @@ InvoiceMerge.exe --where      :: 自身路径 + iTextSharp 加载来源（来源
 
 ## 在 Quicker 中使用
 
-配套动作「**一键A4发票拼版**」可在 [Quicker 动作库](https://getquicker.net/Share) 搜索到，纯代码实现、不需要本 exe；本仓库的 exe 适合命令行、批处理或其他程序调用。
+配套动作「**一键A4发票拼版**」已上架 Quicker 动作库，纯代码实现，不需要本仓库的 exe：
 
-Quicker「运行或打开」模块的参数写法：
+> **https://getquicker.net/Sharedaction?code=e42cf181-8242-4428-776e-08df37bc8114**
+
+用法：在资源管理器里选中一个或多个发票 PDF → 运行动作 → 在弹窗里选「专用发票 / 普通发票」→ 成品生成在发票所在目录并自动打开。动作调用 Quicker 自带的 `PdfSharp.dll` 完成排版，不安装额外程序、不留临时文件，排版规格与本文档一致。
+
+需要 Quicker 本体（免费版即可）：https://getquicker.net/Download
+
+如果反过来想让 exe 被 Quicker 调用（例如已有基于 exe 的流程），用「运行或打开」模块，参数写法：
 
 ```
 0 "{选中的文件列表}"
