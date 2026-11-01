@@ -413,6 +413,39 @@ static class Program
                 g.FillPath(b, p);
             g.Restore(st);
         }
+
+        // Quicker 闪电标志（官网 32x32 logo 路径转 GDI+ 贝塞尔）
+        public static GraphicsPath QuickerPath()
+        {
+            var p = new GraphicsPath();
+            p.AddLine(5.8f, 29.5f, 14.2f, 16.5f);
+            p.AddBezier(14.2f, 16.5f, 14.4f, 16.3f, 14.3f, 15.9f, 14.1f, 15.8f);
+            p.AddLine(14.1f, 15.8f, 5.9f, 10.2f);
+            p.AddBezier(5.9f, 10.2f, 5.6f, 10f, 5.6f, 9.6f, 5.9f, 9.4f);
+            p.AddLine(5.9f, 9.4f, 16.7f, 0.6f);
+            p.AddLine(16.7f, 0.6f, 22.7f, 7.1f);
+            p.AddBezier(22.7f, 7.1f, 22.9f, 7.4f, 22.9f, 7.8f, 22.6f, 7.9f);
+            p.AddLine(22.6f, 7.9f, 19.3f, 9.4f);
+            p.AddBezier(19.3f, 9.4f, 18.9f, 9.6f, 18.9f, 10.1f, 19.2f, 10.3f);
+            p.AddLine(19.2f, 10.3f, 27f, 15.6f);
+            p.AddBezier(27f, 15.6f, 27.3f, 15.8f, 27.3f, 16.3f, 27f, 16.5f);
+            p.AddLine(27f, 16.5f, 6.5f, 30.2f);
+            p.AddBezier(6.5f, 30.2f, 6f, 30.5f, 5.5f, 30f, 5.8f, 29.5f);
+            p.CloseFigure();
+            return p;
+        }
+
+        public static void Quicker(Graphics g, RectangleF rr, Color c)
+        {
+            GraphicsState st = g.Save();
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.TranslateTransform(rr.X, rr.Y);
+            g.ScaleTransform(rr.Width / 32f, rr.Height / 32f);
+            using (GraphicsPath p = QuickerPath())
+            using (var b = new SolidBrush(c))
+                g.FillPath(b, p);
+            g.Restore(st);
+        }
     }
 
     // ===================== 主面板（整窗自绘） =====================
@@ -425,9 +458,11 @@ static class Program
         const int CardW = CW - PadX * 2;
         const int CardH = 62;
         const string RepoUrl = "https://github.com/conley2322/InvoiceMerge";
+        const string QuickUrl = "https://getquicker.net/Sharedaction?code=e42cf181-8242-4428-776e-08df37bc8114";
 
         readonly Rectangle _rcClose = new Rectangle(CW - PadX - 24, 16, 24, 24);
         readonly Rectangle _rcGit = new Rectangle(CW - PadX - 56, 16, 24, 24);
+        readonly Rectangle _rcQuick = new Rectangle(CW - PadX - 88, 16, 24, 24);
         readonly Rectangle _rcDrop = new Rectangle(PadX, 66, CW - PadX * 2, 113);
         readonly Rectangle _rcBar = new Rectangle(PadX, 66, CW - PadX * 2, 44);
         readonly Rectangle _rcCard1 = new Rectangle(PadX, 193, CardW, CardH);
@@ -439,10 +474,11 @@ static class Program
         Phase _phase = Phase.Empty;
         List<string> _files = new List<string>();
         int _skipped;
-        int _hover;                 // 0 无 / 1 投放区 / 2 卡1 / 3 卡2 / 4 取消 / 5 关闭 / 6 GitHub
+        int _hover;                 // 0 无 / 1 投放区 / 2 卡1 / 3 卡2 / 4 取消 / 5 关闭 / 6 GitHub / 7 Quicker
         bool _dragOver;
         bool _dragging;
-        bool _tipOn;                // GitHub 悬停气泡是否显示
+        int _tipKind;               // 气泡当前显示：0 无 / 1 GitHub / 2 Quicker
+        int _tipWant;               // 计时中的目标气泡
         readonly Timer _tipTimer = new Timer();
         Point _dragFrom;
         string _failText = "";
@@ -486,7 +522,7 @@ static class Program
             _tipTimer.Tick += delegate
             {
                 _tipTimer.Stop();
-                _tipOn = true;
+                _tipKind = _tipWant;
                 Invalidate();
             };
         }
@@ -567,7 +603,8 @@ static class Program
         int HitTest(Point pt)
         {
             if (_rcClose.Contains(pt)) return 5;
-            if (_rcGit.Contains(pt) || (_tipOn && _rcTipHit.Contains(pt))) return 6;
+            if (_rcGit.Contains(pt) || (_tipKind == 1 && _rcTipHit.Contains(pt))) return 6;
+            if (_rcQuick.Contains(pt) || (_tipKind == 2 && _rcTipHit.Contains(pt))) return 7;
             if (_phase == Phase.Empty && _rcDrop.Contains(pt)) return 1;
             if (_rcBar.Contains(pt) && _phase == Phase.Ready) return 1;
             if (_rcCard1.Contains(pt) && _phase == Phase.Ready) return 2;
@@ -579,12 +616,19 @@ static class Program
         void HideTip()
         {
             _tipTimer.Stop();
-            if (_tipOn) { _tipOn = false; Invalidate(); }
+            _tipWant = 0;
+            if (_tipKind != 0) { _tipKind = 0; Invalidate(); }
         }
 
         void OpenRepo()
         {
             try { Process.Start(new ProcessStartInfo(RepoUrl) { UseShellExecute = true }); }
+            catch { }
+        }
+
+        void OpenQuicker()
+        {
+            try { Process.Start(new ProcessStartInfo(QuickUrl) { UseShellExecute = true }); }
             catch { }
         }
 
@@ -599,9 +643,19 @@ static class Program
             int h = HitTest(e.Location);
             if (h != _hover)
             {
-                if (h == 6)
+                if (h == 6 || h == 7)
                 {
-                    if (!_tipOn && !_tipTimer.Enabled) _tipTimer.Start();
+                    int want = h == 6 ? 1 : 2;
+                    if (_tipKind != want)
+                    {
+                        if (_tipKind != 0) { _tipKind = 0; Invalidate(); }
+                        if (_tipWant != want)
+                        {
+                            _tipWant = want;
+                            _tipTimer.Stop();
+                            _tipTimer.Start();
+                        }
+                    }
                 }
                 else HideTip();
                 _hover = h;
@@ -628,6 +682,7 @@ static class Program
             int h = HitTest(e.Location);
             if (h == 5) { HideTip(); Close(); return; }
             if (h == 6) { HideTip(); OpenRepo(); return; }
+            if (h == 7) { HideTip(); OpenQuicker(); return; }
             if (h == 4) { Close(); return; }
             if (h == 1) { PickFiles(); return; }
             if (h == 2) { Run(true); return; }
@@ -745,6 +800,12 @@ static class Program
             if (ghot) Draw.Fill(g, _rcGit, 6f, Skin.GhHoverBg);
             Draw.Github(g, new RectangleF(_rcGit.X + 3.5f, _rcGit.Y + 3.5f, 17f, 17f),
                 ghot ? Skin.Accent : Skin.GhRest);
+
+            // Quicker 图标
+            bool qhot = _hover == 7;
+            if (qhot) Draw.Fill(g, _rcQuick, 6f, Skin.GhHoverBg);
+            Draw.Quicker(g, new RectangleF(_rcQuick.X + 3.5f, _rcQuick.Y + 3.5f, 17f, 17f),
+                qhot ? Skin.Accent : Skin.GhRest);
 
             // 关闭按钮
             if (_hover == 5)
@@ -913,16 +974,18 @@ static class Program
 
         void DrawTip(Graphics g)
         {
-            if (!_tipOn) return;
+            if (_tipKind == 0) return;
             Draw.Fill(g, _rcTip, 8f, Color.White);
             Draw.Stroke(g, _rcTip, 8f, Skin.TipLine, 1f);
 
+            string t1 = _tipKind == 1 ? "在 GitHub 上查看源码" : "在 Quicker 动作库查看";
+            string t2 = _tipKind == 1 ? "github.com/conley2322/InvoiceMerge" : "getquicker.net · 一键A4发票拼版";
             using (var f = new Font("微软雅黑", 9f, FontStyle.Bold))
             using (var b = new SolidBrush(Skin.TextStrong))
-                g.DrawString("在 GitHub 上查看源码", f, b, _rcTip.X + 12f, _rcTip.Y + 9f);
+                g.DrawString(t1, f, b, _rcTip.X + 12f, _rcTip.Y + 9f);
             using (var f = new Font("微软雅黑", 8f))
             using (var b = new SolidBrush(Skin.TextMuted))
-                g.DrawString("github.com/conley2322/InvoiceMerge", f, b, _rcTip.X + 12f, _rcTip.Y + 28f);
+                g.DrawString(t2, f, b, _rcTip.X + 12f, _rcTip.Y + 28f);
 
             using (var pen = new Pen(Skin.TextMuted, 1.2f))
             {
