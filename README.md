@@ -26,10 +26,11 @@ Windows 单文件工具，纯本地处理，不联网、不上传、不收集任
 
 ## 下载
 
-直接取 [release/InvoiceMerge_v14.exe](release/InvoiceMerge_v14.exe)（9.04 MB / 9,479,168 字节）。
+直接取 [release/InvoiceMerge_v15.exe](release/InvoiceMerge_v15.exe)（9.16 MB / 9,609,728 字节）。
 
 - 单文件版：两个依赖 DLL 已嵌入 exe 内部，复制到任何目录双击即可运行，不需要同目录放 DLL。
 - 运行环境：Windows + .NET Framework 4.x（Win10/11 自带，无需另外安装）。
+- 界面：无边框圆角面板（Win11 走系统圆角 + 投影，Win10 自动回退），按住空白处可拖动；右上角有 GitHub 图标，点击直达本仓库。
 
 > **国内网络下载不下来怎么办？**
 > GitHub 的文件直链走 `raw.githubusercontent.com`，在国内经常被阻断。三个办法任选：
@@ -48,7 +49,7 @@ Windows 单文件工具，纯本地处理，不联网、不上传、不收集任
 2. 弹出选择窗，点「专用发票」或「普通发票」两张卡片（也支持键盘 `1` / `2`）；
 3. 处理完成后成品自动生成并打开。
 
-双击 exe（不带文件）会先弹出文件选择框（可多选），之后流程相同。处理中或出错时窗口内直接显示状态与原因。
+双击 exe（不带文件）会打开同一个面板：中间是拖放区，点它可以弹文件选择框，也可以直接把文件（或文件夹）拖进窗口；选好后按需求点卡片或按 `1` / `2`。处理中或出错时窗口内直接显示状态与原因。
 
 ### 方式二：命令行 / 脚本调用（静默，零弹窗）
 
@@ -114,7 +115,7 @@ Quicker「运行或打开」模块的参数写法：
    - `itextsharp.dll` —— NuGet 包 `iTextSharp` 5.5.13.3（或 `iTextSharp-LGPL`）
    - `BouncyCastle.Cryptography.dll` —— NuGet 包 `BouncyCastle.Cryptography` 2.x
 
-然后双击 `build.bat`。编译脚本会自动补 UTF-8 BOM、嵌入两个 DLL、引用系统的 `System.Windows.Forms` / `System.Drawing`（v13 图形界面所需，均为 Windows 自带）、跑 `--version` 自检，并把 exe 单独拷到空目录做「无 DLL 运行」验证。
+然后双击 `build.bat`。编译脚本会自动补 UTF-8 BOM、嵌入两个 DLL、引用系统的 `System.Windows.Forms` / `System.Drawing`（图形界面所需，均为 Windows 自带）、嵌入 `assets\app.ico` 图标（如存在）、跑 `--version` 自检，并把 exe 单独拷到空目录做「无 DLL 运行」验证。
 
 ---
 

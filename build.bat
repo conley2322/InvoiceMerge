@@ -37,6 +37,10 @@ if exist "%OUT%" del /q "%OUT%"
 rem 源码 UTF-8 无 BOM 时 csc 会按 GBK 读，导致中文判断失效；补 BOM
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SRC%'; $t=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); [IO.File]::WriteAllText($p,$t,(New-Object Text.UTF8Encoding($true)))"
 
+rem 应用图标（assets\app.ico 存在才嵌入，可选）
+set ICO=
+if exist "%ROOT%assets\app.ico" set ICO=-win32icon:"%ROOT%assets\app.ico"
+
 "%CSC%" -nologo -target:winexe -platform:anycpu -optimize+ ^
   -out:"%OUT%" ^
   -r:"%LIB%\itextsharp.dll" ^
@@ -45,6 +49,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='%SRC%'; $t=[IO.File]
   -r:System.Drawing.dll ^
   -resource:"%LIB%\itextsharp.dll" ^
   -resource:"%LIB%\BouncyCastle.Cryptography.dll" ^
+  %ICO% ^
   "%SRC%"
 
 echo.
@@ -64,11 +69,11 @@ if exist "%TESTDIR%" rd /s /q "%TESTDIR%"
 md "%TESTDIR%" 2>nul
 copy /y "%OUT%" "%TESTDIR%\InvoiceMerge.exe" >nul
 echo --- single-file test: exe alone in an empty folder ---
-"%TESTDIR%\InvoiceMerge.exe" --where
+"%TESTDIR%\InvoiceMerge.exe" --where > "%TESTDIR%\where.txt" 2>&1
+type "%TESTDIR%\where.txt"
 ping -n 2 127.0.0.1 >nul
-if exist "%TESTDIR%\last_result.txt" (
-  type "%TESTDIR%\last_result.txt"
-  echo.
+findstr /c:"iTextSharp" "%TESTDIR%\where.txt" >nul 2>&1
+if not errorlevel 1 (
   echo [PASS] 依赖已嵌入 exe
 ) else (
   echo [FAIL] 单独运行时无法加载 iTextSharp，嵌入可能未生效
