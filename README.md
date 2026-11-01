@@ -26,10 +26,17 @@ Windows 单文件命令行工具，纯本地处理，不联网、不上传、不
 
 ## 下载
 
-直接取 [release/InvoiceMerge_v12.exe](release/InvoiceMerge_v12.exe)（9.03 MB）。
+直接取 [release/InvoiceMerge_v12.exe](release/InvoiceMerge_v12.exe)（9.03 MB / 9,472,000 字节）。
 
 - 单文件版：两个依赖 DLL 已嵌入 exe 内部，复制到任何目录双击即可运行，不需要同目录放 DLL。
 - 运行环境：Windows + .NET Framework 4.x（Win10/11 自带，无需另外安装）。
+
+> **国内网络下载不下来怎么办？**
+> GitHub 的文件直链走 `raw.githubusercontent.com`，在国内经常被阻断。三个办法任选：
+> 1. 把仓库 clone 下来，直接取 `release/` 目录里的 exe：
+>    `git clone https://github.com/conley2322/InvoiceMerge.git`
+> 2. 在直链前面拼一个可用的 GitHub 加速镜像前缀再下载；
+> 3. 打开仓库网页 → `release` 目录 → 点文件名 → 页面上点 `Download raw file`，如果这个按钮也没反应，说明是直链被墙，只能用前两种。
 
 ---
 
