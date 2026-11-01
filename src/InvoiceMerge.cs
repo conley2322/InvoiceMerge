@@ -1,14 +1,14 @@
-﻿// 发票拼版 v13：拖拽交互版（单文件，两个 DLL 已嵌入 exe）
+﻿// 发票拼版 v14：拖拽交互版（单文件，两个 DLL 已嵌入 exe；不产生任何日志文件）
 // ---------------------------------------------------------------------------
 // 【日常用法】把 1~N 个发票 PDF 直接拖到 exe 图标上 → 弹出选择窗 → 选专用/普通发票 → 自动生成并打开成品
 //            双击 exe（不带文件）→ 弹出文件选择框，流程相同
 //
-// 【静默用法】保留原命令行模式，供 Quicker 等程序调用（此路径零弹窗、零 UI）：
+// 【静默用法】命令行模式，供脚本/程序调用（此路径零弹窗、零 UI、零文件写入）：
 //            InvoiceMerge.exe <发票类型> <PDF路径...>
 //              发票类型：0 / 专用发票 / 专票  → 专票模式（每张票上下复制两份，一票一页）
 //                        1 / 普通发票 / 普票  → 普票模式（两两配对，上=票1 下=票2；奇数尾张下半留白）
-//            InvoiceMerge.exe --version   版本戳，写 last_result.txt
-//            InvoiceMerge.exe --where     打印自身路径与 iTextSharp 加载来源
+//            InvoiceMerge.exe --version   版本戳（打印到控制台）
+//            InvoiceMerge.exe --where     自身路径与 iTextSharp 加载来源（打印到控制台）
 //
 // 布局与 V4 一致：A4 竖版、边距 28pt、间距 16pt、0.5pt 灰色 4-4 裁切虚线、等比缩放居中
 // 输出命名：<源目录>\专票拼版_/普票拼版_<时间戳>.pdf，生成后自动打开
@@ -20,6 +20,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using iText = iTextSharp.text;             // 用别名避免与 System.Drawing.Font 等类型冲突
@@ -27,8 +28,7 @@ using iTextSharp.text.pdf;
 
 static class Program
 {
-    const string Ver = "v13";
-    static readonly string ResultFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "last_result.txt");
+    const string Ver = "v14";
 
     [STAThread]
     static int Main(string[] args)
@@ -293,15 +293,11 @@ static class Program
                         throw new Exception("自校验失败：预期 " + expectPages + " 页，实际 " + n + " 页。");
                 }
 
-                string dir = Path.GetDirectoryName(_files[0]);
+                string dir = Path.GetDirectoryName(Path.GetFullPath(_files[0]));
                 if (string.IsNullOrEmpty(dir)) dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 string outPath = Path.Combine(dir,
                     (special ? "专票拼版_" : "普票拼版_") + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".pdf");
                 File.WriteAllBytes(outPath, bytes);
-
-                WriteResult("OK " + (special ? "专票模式" : "普票模式") + "（拖拽交互）"
-                    + " | 输入 " + _files.Count + " 个文件 / " + invoiceCount + " 张票 → 输出 " + outPages + " 页 A4"
-                    + Environment.NewLine + outPath);
 
                 ExitCode = 0;
                 try { Process.Start(new ProcessStartInfo(outPath) { UseShellExecute = true }); }
@@ -310,7 +306,6 @@ static class Program
             }
             catch (Exception ex)
             {
-                WriteResult("ERROR " + ex.GetType().Name + "：" + ex.Message);
                 ExitCode = 3;
 
                 _lblStatus.ForeColor = Color.FromArgb(190, 40, 40);
@@ -381,15 +376,15 @@ static class Program
                 string dep;
                 try { dep = typeof(PdfReader).Assembly.Location; }
                 catch { dep = "(加载失败)"; }
-                WriteResult("WHERE " + Ver + Environment.NewLine
-                    + "exe: " + self + Environment.NewLine
-                    + "iTextSharp 来源: " + dep);
+                Say("WHERE " + Ver);
+                Say("exe: " + self);
+                Say("iTextSharp 来源: " + dep);
                 return 0;
             }
 
             if (args.Length >= 1 && (args[0] == "--version" || args[0] == "-v"))
             {
-                WriteResult("VERSION " + Ver);
+                Say("VERSION " + Ver);
                 return 0;
             }
 
@@ -407,7 +402,7 @@ static class Program
             List<string> paths = ResolveInputPaths(rest.ToArray());
             if (paths.Count == 0)
             {
-                WriteResult("ERROR 未取得有效的 PDF 输入 | 类型参数=" + typeArg
+                SayError("ERROR 未取得有效的 PDF 输入 | 类型参数=" + typeArg
                     + " | 参数：" + (args.Length == 0 ? "(无)" : string.Join(" | ", args)));
                 return 2;
             }
@@ -428,7 +423,7 @@ static class Program
                     throw new Exception("自校验失败：预期 " + expectPages + " 页，实际 " + n + " 页。");
             }
 
-            string dir = Path.GetDirectoryName(paths[0]);
+            string dir = Path.GetDirectoryName(Path.GetFullPath(paths[0]));
             if (string.IsNullOrEmpty(dir)) dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
             string outPath = Path.Combine(dir,
                 (specialMode ? "专票拼版_" : "普票拼版_") + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".pdf");
@@ -437,15 +432,14 @@ static class Program
             try { Process.Start(new ProcessStartInfo(outPath) { UseShellExecute = true }); }
             catch { }
 
-            WriteResult("OK " + (specialMode ? "专票模式" : "普票模式")
-                + " | 类型参数=" + typeArg
-                + " | 输入 " + paths.Count + " 个文件 / " + invoiceCount + " 张票 → 输出 " + outPages + " 页 A4"
-                + Environment.NewLine + outPath);
+            Say("OK " + (specialMode ? "专票模式" : "普票模式")
+                + " | 输入 " + paths.Count + " 个文件 / " + invoiceCount + " 张票 → 输出 " + outPages + " 页 A4");
+            Say(outPath);
             return 0;
         }
         catch (Exception ex)
         {
-            WriteResult("ERROR " + ex.GetType().Name + "：" + ex.Message);
+            SayError("ERROR " + ex.GetType().Name + "：" + ex.Message);
             return 3;
         }
     }
@@ -468,13 +462,29 @@ static class Program
         return s.Contains("专");
     }
 
-    static void WriteResult(string text)
+    // 命令行模式需要往控制台输出：winexe 不自动继承父控制台，主动挂上去。
+    // 双击运行时没有父控制台，挂接失败也没关系，不写任何文件。
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool AttachConsole(int dwProcessId);
+    const int AttachParentProcess = -1;
+    static bool _consoleTried;
+
+    static void Say(string text)
     {
         try
         {
-            File.WriteAllText(ResultFile,
-                "[" + Ver + "] [" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "] " + text + Environment.NewLine,
-                new UTF8Encoding(true));
+            if (!_consoleTried) { _consoleTried = true; AttachConsole(AttachParentProcess); }
+            Console.WriteLine(text);
+        }
+        catch { }
+    }
+
+    static void SayError(string text)
+    {
+        try
+        {
+            if (!_consoleTried) { _consoleTried = true; AttachConsole(AttachParentProcess); }
+            Console.Error.WriteLine(text);
         }
         catch { }
     }

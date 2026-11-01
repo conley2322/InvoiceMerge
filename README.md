@@ -26,7 +26,7 @@ Windows 单文件工具，纯本地处理，不联网、不上传、不收集任
 
 ## 下载
 
-直接取 [release/InvoiceMerge_v13.exe](release/InvoiceMerge_v13.exe)（9.04 MB / 9,479,680 字节）。
+直接取 [release/InvoiceMerge_v14.exe](release/InvoiceMerge_v14.exe)（9.04 MB / 9,479,168 字节）。
 
 - 单文件版：两个依赖 DLL 已嵌入 exe 内部，复制到任何目录双击即可运行，不需要同目录放 DLL。
 - 运行环境：Windows + .NET Framework 4.x（Win10/11 自带，无需另外安装）。
@@ -73,7 +73,7 @@ InvoiceMerge.exe 1 "D:\发票\1.pdf" "D:\发票\2.pdf" "D:\发票\3.pdf" "D:\发
 自检命令：
 
 ```bat
-InvoiceMerge.exe --version    :: 版本戳，写入 last_result.txt
+InvoiceMerge.exe --version    :: 版本戳，打印到控制台
 InvoiceMerge.exe --where      :: 自身路径 + iTextSharp 加载来源（来源为空 = 从内存加载，正常）
 ```
 
@@ -85,7 +85,9 @@ InvoiceMerge.exe --where      :: 自身路径 + iTextSharp 加载来源（来源
 | `2` | 没有有效输入（文件不存在，或全部是已拼好的成品） |
 | `3` | 处理出错 |
 
-结果统一写入 exe 同目录的 `last_result.txt`；命令行模式**全程零弹窗**，方便被其他程序（如 Quicker）调用后读取状态。
+结果只打印到控制台（有父控制台时自动挂接），命令行模式**全程零弹窗**，方便被其他程序（如 Quicker）调用后按退出码判断结果。
+
+**不产生任何日志文件**：程序只在目标目录写一个成品 PDF，不会在你放 exe 或发票的目录里留下 `last_result.txt`、临时文件或配置。
 
 已做防护：文件名以 `专票拼版_` / `普票拼版_` 开头的成品会被自动跳过，避免重复拼版。
 
